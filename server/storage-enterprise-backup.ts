@@ -159,16 +159,8 @@ export interface IStorage {
 export class EnterpriseStorage implements IStorage {
   // CORE USER METHODS
   async getUser(id: number): Promise<User | undefined> {
-    try {
-      const userDoc = await db.collection('users').doc(id.toString()).get();
-      if (userDoc.exists) {
-        return { id: userDoc.id, ...userDoc.data() } as User;
-      }
-      return undefined;
-    } catch (error) {
-      console.error('Error getting user:', error);
-      return undefined;
-    }
+    const [user] = await db.select().from(users).where(eq(users.id, id));
+    return user || undefined;
   }
 
   async getUserByUsername(username: string): Promise<User | undefined> {

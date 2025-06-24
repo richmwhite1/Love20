@@ -159,16 +159,8 @@ export interface IStorage {
 export class EnterpriseStorage implements IStorage {
   // CORE USER METHODS
   async getUser(id: number): Promise<User | undefined> {
-    try {
-      const userDoc = await db.collection('users').doc(id.toString()).get();
-      if (userDoc.exists) {
-        return { id: userDoc.id, ...userDoc.data() } as User;
-      }
-      return undefined;
-    } catch (error) {
-      console.error('Error getting user:', error);
-      return undefined;
-    }
+    const [user] = await db.select().from(users).where(eq(users.id, id));
+    return user || undefined;
   }
 
   async getUserByUsername(username: string): Promise<User | undefined> {
@@ -784,56 +776,401 @@ export class EnterpriseStorage implements IStorage {
 
   // BULLETPROOF THREE-TIER PRIVACY SYSTEM
   async getAllPosts(viewerId?: number): Promise<PostWithUser[]> {
-    try {
-      console.log("Fetching posts from Firestore for viewerId:", viewerId);
-      
-      const postsSnapshot = await db.collection("posts")
-        .orderBy("timestamp", "desc")
-        .limit(10)
-        .get();
-      
-      const posts: PostWithUser[] = [];
-      
-      for (const doc of postsSnapshot.docs) {
-        const postData = doc.data() as any;
-        
-        let userData: any = null;
-        if (postData.userId) {
-          const userDoc = await db.collection("users").doc(postData.userId.toString()).get();
-          userData = userDoc.data();
+    // Get all posts with user and list data
+    const allPosts = await db
+      .select({
+        post: posts,
+        user: {
+          id: users.id,
+          username: users.username,
+          name: users.name,
+          profilePictureUrl: users.profilePictureUrl
+        },
+        list: {
+          id: lists.id,
+          name: lists.name,
+          privacyLevel: lists.privacyLevel
         }
-        
-        const post: PostWithUser = {
-          id: doc.id,
-          userId: postData.userId,
-          primaryPhotoUrl: postData.primaryPhotoUrl,
-          primaryLink: postData.primaryLink,
-          linkLabel: postData.linkLabel,
-          primaryDescription: postData.primaryDescription,
-          privacy: postData.privacy,
-          discountCode: postData.discountCode,
-          additionalPhotos: postData.additionalPhotos,
-          spotifyUrl: postData.spotifyUrl,
-          spotifyLabel: postData.spotifyLabel,
-          youtubeUrl: postData.youtubeUrl,
-          youtubeLabel: postData.youtubeLabel,
-          isEvent: postData.isEvent,
-          eventDate: postData.eventDate,
-          allowRsvp: postData.allowRsvp,
-          engagement: postData.engagement,
-          timestamp: postData.timestamp,
-          user: userData || { id: postData.userId || "unknown", username: "Unknown User" }
-        };
-        
-        posts.push(post);
-      }
-      
-      console.log(`Found ${posts.length} posts`);
-      return posts;
-    } catch (error) {
-      console.error("Error fetching posts from Firestore:", error);
-      throw error;
+      })
+      .from(posts)
+      .leftJoin(users, eq(posts.userId, users.id))
+      .leftJoin(lists, eq(posts.listId, lists.id))
+      .orderBy(desc(posts.createdAt));
+
+    if (!viewerId) {
+      // Anonymous users: only public posts (with or without lists, but if list exists it must be public)
+      return allPosts
+        .filter(r => r.post.privacy === 'public' && (!r.list || r.list.privacyLevel === 'public'))
+        .map(r => ({
+          ...r.post,
+          user: r.user!,
+          list: r.list || undefined
+        })) as PostWithUser[];
     }
+
+    const filteredPosts = [];
+    
+    for (const row of allPosts) {
+      const post = row.post;
+      const user = row.user!;
+      const list = row.list;
+
+      // Users can always see their own posts
+      if (post.userId === viewerId) {
+        filteredPosts.push({
+          ...post,
+          user,
+          list: list || undefined
+        });
+        continue;
+      }
+
+      // Determine the effective privacy level (post privacy or list privacy - whichever is more restrictive)
+      const effectivePrivacy = this.getEffectivePrivacy(post.privacy, list?.privacyLevel);
+
+      if (effectivePrivacy === 'public') {
+        // Public posts - visible to everyone
+        filteredPosts.push({
+          ...post,
+          user,
+          list: list || undefined
+        });
+      } else if (effectivePrivacy === 'connections') {
+        // Connections-only posts - check if viewer is connected to author
+        const isConnected = await this.areFriends(viewerId, post.userId);
+        if (isConnected) {
+          filteredPosts.push({
+            ...post,
+            user,
+            list: list || undefined
+          });
+        }
+      } else if (effectivePrivacy === 'private') {
+        // Private posts - check if viewer has list access or is tagged
+        let hasAccess = false;
+
+        // Check list access if post is in a list
+        if (post.listId) {
+          const accessResult = await this.hasListAccess(viewerId, post.listId);
+          hasAccess = accessResult.hasAccess;
+        }
+
+        // If no list access, check if tagged in post (simplified for now)
+        if (!hasAccess) {
+          // Note: Tagged posts feature will be implemented when schema is available
+          hasAccess = false;
+        }
+
+        if (hasAccess) {
+          filteredPosts.push({
+            ...post,
+            user,
+            list: list || undefined
+          });
+        }
+      }
+    }
+
+    // Fetch hashtags for all posts
+    const postIds = filteredPosts.map(post => post.id);
+    if (postIds.length > 0) {
+      const hashtagsResult = await db
+        .select({
+          postId: postHashtags.postId,
+          hashtag: hashtags
+        })
+        .from(postHashtags)
+        .leftJoin(hashtags, eq(postHashtags.hashtagId, hashtags.id))
+        .where(inArray(postHashtags.postId, postIds));
+
+      // Group hashtags by post ID
+      const hashtagsByPost: Record<number, any[]> = {};
+      hashtagsResult.forEach(row => {
+        if (row.hashtag) {
+          if (!hashtagsByPost[row.postId]) {
+            hashtagsByPost[row.postId] = [];
+          }
+          hashtagsByPost[row.postId].push(row.hashtag);
+        }
+      });
+
+      // Add hashtags to each post
+      filteredPosts.forEach(post => {
+        (post as any).hashtags = hashtagsByPost[post.id] || [];
+      });
+    }
+
+    return filteredPosts as PostWithUser[];
+  }
+
+  // Helper method to determine effective privacy level
+  private getEffectivePrivacy(postPrivacy: string, listPrivacy?: string): string {
+    // If no list, use post privacy
+    if (!listPrivacy) return postPrivacy;
+    
+    // Return the most restrictive privacy level
+    const privacyLevels: Record<string, number> = { 'public': 0, 'connections': 1, 'private': 2 };
+    const postLevel = privacyLevels[postPrivacy] || 0;
+    const listLevel = privacyLevels[listPrivacy] || 0;
+    
+    const maxLevel = Math.max(postLevel, listLevel);
+    return Object.keys(privacyLevels).find(key => privacyLevels[key] === maxLevel) || 'public';
+  }
+
+  // Helper methods for privacy checking
+  // BULLETPROOF PRIVACY: Only public posts in public lists are searchable
+  async getPostsByHashtag(hashtagName: string, viewerId?: number): Promise<PostWithUser[]> {
+    const result = await db
+      .select({
+        post: posts,
+        user: {
+          id: users.id,
+          username: users.username,
+          name: users.name,
+          profilePictureUrl: users.profilePictureUrl
+        },
+        list: {
+          id: lists.id,
+          name: lists.name,
+          privacyLevel: lists.privacyLevel
+        }
+      })
+      .from(posts)
+      .innerJoin(postHashtags, eq(posts.id, postHashtags.postId))
+      .innerJoin(hashtags, eq(postHashtags.hashtagId, hashtags.id))
+      .leftJoin(users, eq(posts.userId, users.id))
+      .leftJoin(lists, eq(posts.listId, lists.id))
+      .where(
+        and(
+          eq(hashtags.name, hashtagName),
+          eq(posts.privacy, 'public'),
+          eq(lists.privacyLevel, 'public')
+        )
+      )
+      .orderBy(desc(posts.createdAt));
+
+    return result.map(r => ({
+      ...r.post,
+      user: r.user!,
+      list: r.list || undefined
+    })) as PostWithUser[];
+  }
+
+  // BULLETPROOF PRIVACY: Find posts that contain ALL selected hashtags (AND logic)
+  async getPostsByMultipleHashtags(hashtagNames: string[]): Promise<PostWithUser[]> {
+    if (hashtagNames.length === 0) return [];
+    
+    const result = await db
+      .select({
+        post: posts,
+        user: {
+          id: users.id,
+          username: users.username,
+          name: users.name,
+          profilePictureUrl: users.profilePictureUrl
+        },
+        list: {
+          id: lists.id,
+          name: lists.name,
+          privacyLevel: lists.privacyLevel
+        },
+        hashtagCount: count()
+      })
+      .from(posts)
+      .innerJoin(postHashtags, eq(posts.id, postHashtags.postId))
+      .innerJoin(hashtags, eq(postHashtags.hashtagId, hashtags.id))
+      .leftJoin(users, eq(posts.userId, users.id))
+      .leftJoin(lists, eq(posts.listId, lists.id))
+      .where(
+        and(
+          inArray(hashtags.name, hashtagNames),
+          eq(posts.privacy, 'public'),
+          eq(lists.privacyLevel, 'public')
+        )
+      )
+      .groupBy(posts.id, users.id, users.username, users.name, users.profilePictureUrl, lists.id, lists.name, lists.privacyLevel)
+      .having(sql`count(*) = ${hashtagNames.length}`)
+      .orderBy(desc(posts.createdAt));
+
+    return result.map(r => ({
+      ...r.post,
+      user: r.user!,
+      list: r.list || undefined
+    })) as PostWithUser[];
+  }
+
+  async getPostsByUserId(userId: number): Promise<PostWithUser[]> {
+    const result = await db
+      .select({
+        post: posts,
+        user: {
+          id: users.id,
+          username: users.username,
+          name: users.name,
+          profilePictureUrl: users.profilePictureUrl
+        },
+        list: {
+          id: lists.id,
+          name: lists.name,
+          privacyLevel: lists.privacyLevel
+        }
+      })
+      .from(posts)
+      .leftJoin(users, eq(posts.userId, users.id))
+      .leftJoin(lists, eq(posts.listId, lists.id))
+      .where(eq(posts.userId, userId))
+      .orderBy(desc(posts.createdAt));
+
+    return result.map(r => ({
+      ...r.post,
+      user: r.user!,
+      list: r.list || undefined
+    })) as PostWithUser[];
+  }
+
+  async getPostsByListId(listId: number): Promise<PostWithUser[]> {
+    const result = await db
+      .select({
+        post: posts,
+        user: {
+          id: users.id,
+          username: users.username,
+          name: users.name,
+          profilePictureUrl: users.profilePictureUrl
+        },
+        list: {
+          id: lists.id,
+          name: lists.name,
+          privacyLevel: lists.privacyLevel
+        }
+      })
+      .from(posts)
+      .leftJoin(users, eq(posts.userId, users.id))
+      .leftJoin(lists, eq(posts.listId, lists.id))
+      .where(eq(posts.listId, listId))
+      .orderBy(desc(posts.createdAt));
+
+    return result.map(r => ({
+      ...r.post,
+      user: r.user!,
+      list: r.list || undefined
+    })) as PostWithUser[];
+  }
+
+  async getPostsByPrivacy(privacy: string, userId?: number): Promise<PostWithUser[]> {
+    const result = await db
+      .select({
+        post: posts,
+        user: {
+          id: users.id,
+          username: users.username,
+          name: users.name,
+          profilePictureUrl: users.profilePictureUrl
+        },
+        list: {
+          id: lists.id,
+          name: lists.name,
+          privacyLevel: lists.privacyLevel
+        }
+      })
+      .from(posts)
+      .leftJoin(users, eq(posts.userId, users.id))
+      .leftJoin(lists, eq(posts.listId, lists.id))
+      .where(eq(posts.privacy, privacy))
+      .orderBy(desc(posts.createdAt));
+
+    return result.map(r => ({
+      ...r.post,
+      user: r.user!,
+      list: r.list || undefined
+    })) as PostWithUser[];
+  }
+
+  async deletePost(postId: number): Promise<void> {
+    await db.delete(posts).where(eq(posts.id, postId));
+  }
+
+  async updatePost(postId: number, updates: Partial<Post>): Promise<void> {
+    await db
+      .update(posts)
+      .set(updates)
+      .where(eq(posts.id, postId));
+  }
+
+  async getTaggedPosts(userId: number): Promise<PostWithUser[]> {
+    const result = await db
+      .select({
+        post: posts,
+        user: {
+          id: users.id,
+          username: users.username,
+          name: users.name,
+          profilePictureUrl: users.profilePictureUrl
+        },
+        list: {
+          id: lists.id,
+          name: lists.name,
+          privacyLevel: lists.privacyLevel
+        }
+      })
+      .from(posts)
+      .innerJoin(taggedPosts, eq(posts.id, taggedPosts.postId))
+      .leftJoin(users, eq(posts.userId, users.id))
+      .leftJoin(lists, eq(posts.listId, lists.id))
+      .where(eq(taggedPosts.toUserId, userId))
+      .orderBy(desc(posts.createdAt));
+
+    return result.map(r => ({
+      ...r.post,
+      user: r.user!,
+      list: r.list || undefined
+    })) as PostWithUser[];
+  }
+
+  async getFriendsPosts(userId: number): Promise<PostWithUser[]> {
+    const userFriendships = await db
+      .select({ friendId: friendships.friendId })
+      .from(friendships)
+      .where(eq(friendships.userId, userId));
+
+    if (userFriendships.length === 0) return [];
+
+    const friendIds = userFriendships.map(f => f.friendId);
+
+    const result = await db
+      .select({
+        post: posts,
+        user: {
+          id: users.id,
+          username: users.username,
+          name: users.name,
+          profilePictureUrl: users.profilePictureUrl
+        },
+        list: {
+          id: lists.id,
+          name: lists.name,
+          privacyLevel: lists.privacyLevel
+        }
+      })
+      .from(posts)
+      .leftJoin(users, eq(posts.userId, users.id))
+      .leftJoin(lists, eq(posts.listId, lists.id))
+      .where(
+        and(
+          inArray(posts.userId, friendIds),
+          or(
+            eq(posts.privacy, 'public'),
+            eq(posts.privacy, 'connections')
+          )
+        )
+      )
+      .orderBy(desc(posts.createdAt));
+
+    return result.map(r => ({
+      ...r.post,
+      user: r.user!,
+      list: r.list || undefined
+    })) as PostWithUser[];
   }
 
   // ENGAGEMENT METHODS
