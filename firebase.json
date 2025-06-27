@@ -5,6 +5,10 @@
     "rules": "firestore.rules",
     "indexes": "firestore.indexes.json"
   },
+  "functions": {
+    "source": "functions",
+    "runtime": "nodejs18"
+  },
   "hosting": {
     "public": "dist/public",
     "ignore": [
@@ -16,6 +20,134 @@
       {
         "source": "**",
         "destination": "/index.html"
+      }
+    ],
+    "headers": [
+      {
+        "source": "/api/users/**",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "public, max-age=300, stale-while-revalidate=600"
+          }
+        ]
+      },
+      {
+        "source": "/api/posts/**",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "public, max-age=60, stale-while-revalidate=300"
+          }
+        ]
+      },
+      {
+        "source": "/api/lists/**",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "public, max-age=600, stale-while-revalidate=1200"
+          }
+        ]
+      },
+      {
+        "source": "/api/friends/**",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "public, max-age=300, stale-while-revalidate=600"
+          }
+        ]
+      },
+      {
+        "source": "/uploads/**",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "public, max-age=31536000, immutable"
+          }
+        ]
+      },
+      {
+        "source": "/assets/**",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "public, max-age=31536000, immutable"
+          }
+        ]
+      },
+      {
+        "source": "**/*.js",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "public, max-age=31536000, immutable"
+          }
+        ]
+      },
+      {
+        "source": "**/*.css",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "public, max-age=31536000, immutable"
+          }
+        ]
+      },
+      {
+        "source": "**/*.png",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "public, max-age=31536000, immutable"
+          }
+        ]
+      },
+      {
+        "source": "**/*.jpg",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "public, max-age=31536000, immutable"
+          }
+        ]
+      },
+      {
+        "source": "**/*.jpeg",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "public, max-age=31536000, immutable"
+          }
+        ]
+      },
+      {
+        "source": "**/*.gif",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "public, max-age=31536000, immutable"
+          }
+        ]
+      },
+      {
+        "source": "**/*.svg",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "public, max-age=31536000, immutable"
+          }
+        ]
+      },
+      {
+        "source": "**/*.webp",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "public, max-age=31536000, immutable"
+          }
+        ]
       }
     ]
   }

@@ -469,10 +469,21 @@ export const createPostRequestSchema = z.object({
   taskList: z.string().optional(), // JSON string of task array
   attachedLists: z.string().optional(), // JSON string of list ID array
   allowRsvp: z.string().optional(), // "true" or "false" as string from form
+}).transform((data) => {
+  // Transform empty strings to undefined
+  return {
+    ...data,
+    primaryLink: data.primaryLink?.trim() || undefined,
+    spotifyUrl: data.spotifyUrl?.trim() || undefined,
+    youtubeUrl: data.youtubeUrl?.trim() || undefined,
+  };
 }).refine(
   (data) => {
-    // At least one of primaryLink, spotifyUrl, or youtubeUrl must be provided
-    return data.primaryLink || data.spotifyUrl || data.youtubeUrl;
+    // At least one of primaryLink, spotifyUrl, or youtubeUrl must be provided (and not empty)
+    const hasValidUrl = (data.primaryLink && data.primaryLink.trim()) || 
+                       (data.spotifyUrl && data.spotifyUrl.trim()) || 
+                       (data.youtubeUrl && data.youtubeUrl.trim());
+    return hasValidUrl;
   },
   {
     message: "At least one URL (Primary Link, Spotify, or YouTube) is required",
@@ -543,11 +554,11 @@ export const insertCommentSchema = createInsertSchema(comments).pick({
 
 export const createCommentSchema = insertCommentSchema.extend({
   text: z.string().min(1).max(1000, "Comment must be between 1 and 1000 characters"),
-  parentId: z.number().optional(),
+  parentId: z.string().optional(),
   imageUrl: z.string().optional(),
   rating: z.number().min(1).max(5).optional(),
   hashtags: z.array(z.string()).optional(),
-  taggedFriends: z.array(z.number()).optional(),
+  taggedFriends: z.array(z.string()).optional(),
 });
 
 // Friendship schemas
@@ -593,20 +604,20 @@ export const createNotificationSchema = z.object({
 
 // Types
 export type InsertUser = z.infer<typeof insertUserSchema>;
-export type User = typeof users.$inferSelect;
+export type User = Omit<typeof users.$inferSelect, 'id'> & { id: string };
 export type SignUpData = z.infer<typeof signUpSchema>;
 export type SignInData = z.infer<typeof signInSchema>;
 
 export type InsertList = z.infer<typeof insertListSchema>;
-export type List = typeof lists.$inferSelect;
+export type List = Omit<typeof lists.$inferSelect, 'id' | 'userId'> & { id: string; userId: string };
 export type CreateListData = z.infer<typeof createListSchema>;
 
 export type InsertPost = z.infer<typeof insertPostSchema>;
-export type Post = typeof posts.$inferSelect;
+export type Post = Omit<typeof posts.$inferSelect, 'id' | 'userId' | 'listId'> & { id: string; userId: string; listId: string };
 export type CreatePostData = z.infer<typeof createPostSchema>;
 
 export type InsertComment = z.infer<typeof insertCommentSchema>;
-export type Comment = typeof comments.$inferSelect;
+export type Comment = Omit<typeof comments.$inferSelect, 'id' | 'postId' | 'userId'> & { id: string; postId: string; userId: string };
 export type CreateCommentData = z.infer<typeof createCommentSchema>;
 
 // New types for enhanced features
@@ -617,7 +628,7 @@ export type FriendRequest = typeof friendRequests.$inferSelect;
 export type CreateFriendRequestData = z.infer<typeof createFriendRequestSchema>;
 export type RespondFriendRequestData = z.infer<typeof respondFriendRequestSchema>;
 
-export type Hashtag = typeof hashtags.$inferSelect;
+export type Hashtag = Omit<typeof hashtags.$inferSelect, 'id'> & { id: string };
 export type CreateHashtagData = z.infer<typeof createHashtagSchema>;
 
 export type PostTag = typeof postTags.$inferSelect;
@@ -625,7 +636,7 @@ export type CommentTag = typeof commentTags.$inferSelect;
 export type PostHashtag = typeof postHashtags.$inferSelect;
 export type CommentHashtag = typeof commentHashtags.$inferSelect;
 
-export type Notification = typeof notifications.$inferSelect;
+export type Notification = Omit<typeof notifications.$inferSelect, 'id' | 'userId' | 'postId' | 'fromUserId'> & { id: string; userId: string; postId?: string; fromUserId?: string };
 export type CreateNotificationData = z.infer<typeof createNotificationSchema>;
 
 export type Report = typeof reports.$inferSelect;

@@ -52,9 +52,9 @@ const CLEANUP_TASKS = {
   // Code organization cleanup
   organizationIssues: [
     {
-      issue: 'Multiple storage implementations',
-      files: ['storage-enterprise.ts', 'storage-old.ts', 'storage-fixed.ts'],
-      action: 'Consolidate to single enterprise implementation'
+      issue: 'Legacy storage implementations removed',
+      files: ['storage-enterprise.ts'],
+      action: 'Using single enterprise implementation with Firestore'
     },
     {
       issue: 'Test files in production',

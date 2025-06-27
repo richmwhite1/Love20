@@ -1,0 +1,1 @@
+export interface ApiResponse<T = any> { success: boolean; data?: T; message?: string; error?: string; } export interface NotificationData { id: string; userId: string; type: string; title: string; message: string; read: boolean; createdAt: Date; data?: any; } export type PrivacyLevel = "public" | "connections" | "private";

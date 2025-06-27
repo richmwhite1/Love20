@@ -30,8 +30,15 @@ export default defineConfig({
   },
   server: {
     fs: {
-      strict: true,
-      deny: ["**/.*"],
+      strict: false,
+      allow: [".."],
+    },
+    proxy: {
+      '/api': {
+        target: 'http://localhost:3000',
+        changeOrigin: true,
+        secure: false,
+      },
     },
   },
 });

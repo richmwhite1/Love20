@@ -1,0 +1,495 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Helper functions for privacy checks
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+    
+    function isPublic() {
+      return resource.data.privacy == 'public';
+    }
+    
+    function isConnectionsOnly() {
+      return resource.data.privacy == 'connections';
+    }
+    
+    function isPrivate() {
+      return resource.data.privacy == 'private';
+    }
+    
+    // Check if two users are connected (friends)
+    function areConnected(userId1, userId2) {
+      return exists(/databases/$(database)/documents/friendships/$(userId1 + '_' + userId2)) ||
+             exists(/databases/$(database)/documents/friendships/$(userId2 + '_' + userId1));
+    }
+    
+    // Check if user has access to a list (owner or collaborator)
+    function hasListAccess(listId) {
+      return isOwner(resource.data.userId) ||
+             exists(/databases/$(database)/documents/listAccess/$(listId + '_' + request.auth.uid));
+    }
+    
+    // Check if user is blocked by the post owner
+    function isBlockedByOwner(ownerId) {
+      return exists(/databases/$(database)/documents/blacklist/$(ownerId + '_' + request.auth.uid));
+    }
+    
+    // Check if user has blocked the post owner
+    function hasBlockedOwner(ownerId) {
+      return exists(/databases/$(database)/documents/blacklist/$(request.auth.uid + '_' + ownerId));
+    }
+    
+    // Check if user can read a post based on privacy settings
+    function canReadPost(postData) {
+      let ownerId = postData.userId;
+      
+      // User can always read their own posts
+      if (isOwner(ownerId)) {
+        return true;
+      }
+      
+      // Check if blocked
+      if (isBlockedByOwner(ownerId) || hasBlockedOwner(ownerId)) {
+        return false;
+      }
+      
+      // Public posts are readable by everyone
+      if (postData.privacy == 'public') {
+        return true;
+      }
+      
+      // Private posts are only readable by owner
+      if (postData.privacy == 'private') {
+        return false;
+      }
+      
+      // Connections-only posts require friendship
+      if (postData.privacy == 'connections') {
+        return areConnected(request.auth.uid, ownerId);
+      }
+      
+      return false;
+    }
+    
+    // Check if user can read a list based on privacy settings
+    function canReadList(listData) {
+      let ownerId = listData.userId;
+      
+      // User can always read their own lists
+      if (isOwner(ownerId)) {
+        return true;
+      }
+      
+      // Public lists are readable by everyone
+      if (listData.privacyLevel == 'public') {
+        return true;
+      }
+      
+      // Private lists are only readable by owner
+      if (listData.privacyLevel == 'private') {
+        return false;
+      }
+      
+      // Connections-only lists require friendship
+      if (listData.privacyLevel == 'connections') {
+        return areConnected(request.auth.uid, ownerId);
+      }
+      
+      return false;
+    }
+    
+    // Check if user can write to a list (owner or collaborator)
+    function canWriteList(listData) {
+      let ownerId = listData.userId;
+      
+      // Owner can always write
+      if (isOwner(ownerId)) {
+        return true;
+      }
+      
+      // Check if user has collaborator access
+      return hasListAccess(listData.id);
+    }
+    
+    // ===== USERS COLLECTION =====
+    match /users/{userId} {
+      // Users can read public user data
+      allow read: if isAuthenticated();
+      
+      // Users can only update their own data
+      allow update: if isOwner(userId);
+      
+      // Only authenticated users can create their own user document
+      allow create: if isOwner(userId);
+      
+      // Users can only delete their own account
+      allow delete: if isOwner(userId);
+    }
+    
+    // ===== POSTS COLLECTION =====
+    match /posts/{postId} {
+      // Read posts based on privacy settings
+      allow read: if isAuthenticated() && canReadPost(resource.data);
+      
+      // Users can only create posts for themselves
+      allow create: if isAuthenticated() && isOwner(request.resource.data.userId);
+      
+      // Users can only update their own posts
+      allow update: if isAuthenticated() && isOwner(resource.data.userId);
+      
+      // Users can only delete their own posts
+      allow delete: if isAuthenticated() && isOwner(resource.data.userId);
+    }
+    
+    // ===== LISTS COLLECTION =====
+    match /lists/{listId} {
+      // Read lists based on privacy settings
+      allow read: if isAuthenticated() && canReadList(resource.data);
+      
+      // Users can only create lists for themselves
+      allow create: if isAuthenticated() && isOwner(request.resource.data.userId);
+      
+      // Users can update lists they own or have collaborator access to
+      allow update: if isAuthenticated() && canWriteList(resource.data);
+      
+      // Users can only delete lists they own
+      allow delete: if isAuthenticated() && isOwner(resource.data.userId);
+    }
+    
+    // ===== LIST ACCESS COLLECTION (Collaborators) =====
+    match /listAccess/{accessId} {
+      // List owner can read all access records for their lists
+      allow read: if isAuthenticated() && 
+        isOwner(resource.data.listOwnerId);
+      
+      // List owner can create access records
+      allow create: if isAuthenticated() && 
+        isOwner(request.resource.data.listOwnerId);
+      
+      // List owner can update access records
+      allow update: if isAuthenticated() && 
+        isOwner(resource.data.listOwnerId);
+      
+      // List owner can delete access records
+      allow delete: if isAuthenticated() && 
+        isOwner(resource.data.listOwnerId);
+    }
+    
+    // ===== COMMENTS COLLECTION =====
+    match /comments/{commentId} {
+      // Comments inherit post privacy - can only read if can read the post
+      allow read: if isAuthenticated() && 
+        canReadPost(get(/databases/$(database)/documents/posts/$(resource.data.postId)).data);
+      
+      // Users can only create comments on posts they can read
+      allow create: if isAuthenticated() && 
+        isOwner(request.resource.data.userId) &&
+        canReadPost(get(/databases/$(database)/documents/posts/$(request.resource.data.postId)).data);
+      
+      // Users can only update their own comments
+      allow update: if isAuthenticated() && isOwner(resource.data.userId);
+      
+      // Users can only delete their own comments
+      allow delete: if isAuthenticated() && isOwner(resource.data.userId);
+    }
+    
+    // ===== FRIENDSHIPS COLLECTION =====
+    match /friendships/{friendshipId} {
+      // Users can read friendships they're part of
+      allow read: if isAuthenticated() && 
+        (request.auth.uid == resource.data.userId || 
+         request.auth.uid == resource.data.friendId);
+      
+      // Users can create friendships (friend requests)
+      allow create: if isAuthenticated() && 
+        isOwner(request.resource.data.userId);
+      
+      // Users can update friendships they're part of
+      allow update: if isAuthenticated() && 
+        (request.auth.uid == resource.data.userId || 
+         request.auth.uid == resource.data.friendId);
+      
+      // Users can delete friendships they're part of
+      allow delete: if isAuthenticated() && 
+        (request.auth.uid == resource.data.userId || 
+         request.auth.uid == resource.data.friendId);
+    }
+    
+    // ===== FRIEND REQUESTS COLLECTION =====
+    match /friendRequests/{requestId} {
+      // Users can read requests they sent or received
+      allow read: if isAuthenticated() && 
+        (request.auth.uid == resource.data.fromUserId || 
+         request.auth.uid == resource.data.toUserId);
+      
+      // Users can create friend requests
+      allow create: if isAuthenticated() && 
+        isOwner(request.resource.data.fromUserId);
+      
+      // Users can update requests they received
+      allow update: if isAuthenticated() && 
+        request.auth.uid == resource.data.toUserId;
+      
+      // Users can delete requests they sent or received
+      allow delete: if isAuthenticated() && 
+        (request.auth.uid == resource.data.fromUserId || 
+         request.auth.uid == resource.data.toUserId);
+    }
+    
+    // ===== POST LIKES COLLECTION =====
+    match /postLikes/{likeId} {
+      // Likes inherit post privacy
+      allow read: if isAuthenticated() && 
+        canReadPost(get(/databases/$(database)/documents/posts/$(resource.data.postId)).data);
+      
+      // Users can only like posts they can read
+      allow create: if isAuthenticated() && 
+        isOwner(request.resource.data.userId) &&
+        canReadPost(get(/databases/$(database)/documents/posts/$(request.resource.data.postId)).data);
+      
+      // Users can only unlike their own likes
+      allow delete: if isAuthenticated() && isOwner(resource.data.userId);
+    }
+    
+    // ===== POST SHARES COLLECTION =====
+    match /postShares/{shareId} {
+      // Shares inherit post privacy
+      allow read: if isAuthenticated() && 
+        canReadPost(get(/databases/$(database)/documents/posts/$(resource.data.postId)).data);
+      
+      // Users can only share posts they can read
+      allow create: if isAuthenticated() && 
+        isOwner(request.resource.data.userId) &&
+        canReadPost(get(/databases/$(database)/documents/posts/$(request.resource.data.postId)).data);
+    }
+    
+    // ===== SAVED POSTS COLLECTION =====
+    match /savedPosts/{savedId} {
+      // Users can only read their own saved posts
+      allow read: if isAuthenticated() && isOwner(resource.data.userId);
+      
+      // Users can only save posts they can read
+      allow create: if isAuthenticated() && 
+        isOwner(request.resource.data.userId) &&
+        canReadPost(get(/databases/$(database)/documents/posts/$(request.resource.data.postId)).data);
+      
+      // Users can only unsave their own saved posts
+      allow delete: if isAuthenticated() && isOwner(resource.data.userId);
+    }
+    
+    // ===== HASHTAGS COLLECTION =====
+    match /hashtags/{hashtagId} {
+      // Hashtags are public
+      allow read: if true;
+      
+      // Only authenticated users can create hashtags
+      allow create: if isAuthenticated();
+    }
+    
+    // ===== HASHTAG FOLLOWS COLLECTION =====
+    match /hashtagFollows/{followId} {
+      // Users can only read their own hashtag follows
+      allow read: if isAuthenticated() && isOwner(resource.data.userId);
+      
+      // Users can only follow hashtags for themselves
+      allow create: if isAuthenticated() && isOwner(request.resource.data.userId);
+      
+      // Users can only unfollow their own follows
+      allow delete: if isAuthenticated() && isOwner(resource.data.userId);
+    }
+    
+    // ===== POST HASHTAGS COLLECTION =====
+    match /postHashtags/{postHashtagId} {
+      // Post hashtags inherit post privacy
+      allow read: if isAuthenticated() && 
+        canReadPost(get(/databases/$(database)/documents/posts/$(resource.data.postId)).data);
+      
+      // Only post owner can add hashtags
+      allow create: if isAuthenticated() && 
+        isOwner(get(/databases/$(database)/documents/posts/$(request.resource.data.postId)).data.userId);
+      
+      // Only post owner can remove hashtags
+      allow delete: if isAuthenticated() && 
+        isOwner(get(/databases/$(database)/documents/posts/$(resource.data.postId)).data.userId);
+    }
+    
+    // ===== POST TAGS COLLECTION (Tagged Users) =====
+    match /postTags/{postTagId} {
+      // Post tags inherit post privacy
+      allow read: if isAuthenticated() && 
+        canReadPost(get(/databases/$(database)/documents/posts/$(resource.data.postId)).data);
+      
+      // Only post owner can tag users
+      allow create: if isAuthenticated() && 
+        isOwner(get(/databases/$(database)/documents/posts/$(request.resource.data.postId)).data.userId);
+      
+      // Only post owner can remove tags
+      allow delete: if isAuthenticated() && 
+        isOwner(get(/databases/$(database)/documents/posts/$(resource.data.postId)).data.userId);
+    }
+    
+    // ===== NOTIFICATIONS COLLECTION =====
+    match /notifications/{notificationId} {
+      // Users can only read their own notifications
+      allow read: if isAuthenticated() && isOwner(resource.data.userId);
+      
+      // Users can create notifications for others
+      allow create: if isAuthenticated();
+      
+      // Users can only update their own notifications
+      allow update: if isAuthenticated() && isOwner(resource.data.userId);
+      
+      // Users can only delete their own notifications
+      allow delete: if isAuthenticated() && isOwner(resource.data.userId);
+    }
+    
+    // ===== REPORTS COLLECTION =====
+    match /reports/{reportId} {
+      // Users can only read their own reports
+      allow read: if isAuthenticated() && isOwner(resource.data.userId);
+      
+      // Users can create reports
+      allow create: if isAuthenticated() && isOwner(request.resource.data.userId);
+      
+      // Users can only update their own reports
+      allow update: if isAuthenticated() && isOwner(resource.data.userId);
+    }
+    
+    // ===== BLACKLIST COLLECTION =====
+    match /blacklist/{blacklistId} {
+      // Users can only read their own blacklist
+      allow read: if isAuthenticated() && isOwner(resource.data.userId);
+      
+      // Users can add to their own blacklist
+      allow create: if isAuthenticated() && isOwner(request.resource.data.userId);
+      
+      // Users can only update their own blacklist
+      allow update: if isAuthenticated() && isOwner(resource.data.userId);
+      
+      // Users can only delete from their own blacklist
+      allow delete: if isAuthenticated() && isOwner(resource.data.userId);
+    }
+    
+    // ===== RSVPS COLLECTION =====
+    match /rsvps/{rsvpId} {
+      // RSVPs inherit event post privacy
+      allow read: if isAuthenticated() && 
+        canReadPost(get(/databases/$(database)/documents/posts/$(resource.data.postId)).data);
+      
+      // Users can only RSVP for events they can read
+      allow create: if isAuthenticated() && 
+        isOwner(request.resource.data.userId) &&
+        canReadPost(get(/databases/$(database)/documents/posts/$(request.resource.data.postId)).data);
+      
+      // Users can only update their own RSVPs
+      allow update: if isAuthenticated() && isOwner(resource.data.userId);
+      
+      // Users can only delete their own RSVPs
+      allow delete: if isAuthenticated() && isOwner(resource.data.userId);
+    }
+    
+    // ===== ENERGY RATINGS COLLECTIONS =====
+    match /postEnergyRatings/{ratingId} {
+      // Ratings inherit post privacy
+      allow read: if isAuthenticated() && 
+        canReadPost(get(/databases/$(database)/documents/posts/$(resource.data.postId)).data);
+      
+      // Users can only rate posts they can read
+      allow create: if isAuthenticated() && 
+        isOwner(request.resource.data.userId) &&
+        canReadPost(get(/databases/$(database)/documents/posts/$(request.resource.data.postId)).data);
+      
+      // Users can only update their own ratings
+      allow update: if isAuthenticated() && isOwner(resource.data.userId);
+      
+      // Users can only delete their own ratings
+      allow delete: if isAuthenticated() && isOwner(resource.data.userId);
+    }
+    
+    match /profileEnergyRatings/{ratingId} {
+      // Users can read ratings for profiles they can see
+      allow read: if isAuthenticated();
+      
+      // Users can only rate profiles they can see
+      allow create: if isAuthenticated() && isOwner(request.resource.data.userId);
+      
+      // Users can only update their own ratings
+      allow update: if isAuthenticated() && isOwner(resource.data.userId);
+      
+      // Users can only delete their own ratings
+      allow delete: if isAuthenticated() && isOwner(resource.data.userId);
+    }
+    
+    // ===== POST VIEWS COLLECTION =====
+    match /postViews/{viewId} {
+      // Views inherit post privacy
+      allow read: if isAuthenticated() && 
+        canReadPost(get(/databases/$(database)/documents/posts/$(resource.data.postId)).data);
+      
+      // Users can only record views for posts they can read
+      allow create: if isAuthenticated() && 
+        canReadPost(get(/databases/$(database)/documents/posts/$(request.resource.data.postId)).data);
+    }
+    
+    // ===== URL CLICKS COLLECTION =====
+    match /urlClicks/{clickId} {
+      // Clicks inherit post privacy
+      allow read: if isAuthenticated() && 
+        canReadPost(get(/databases/$(database)/documents/posts/$(resource.data.postId)).data);
+      
+      // Users can only record clicks for posts they can read
+      allow create: if isAuthenticated() && 
+        canReadPost(get(/databases/$(database)/documents/posts/$(request.resource.data.postId)).data);
+    }
+    
+    // ===== ADMIN COLLECTIONS (Restricted Access) =====
+    match /adminUsers/{adminId} {
+      // Only admin users can access admin data
+      allow read, write: if isAuthenticated() && 
+        exists(/databases/$(database)/documents/adminUsers/$(request.auth.uid));
+    }
+    
+    match /adminSessions/{sessionId} {
+      allow read, write: if isAuthenticated() && 
+        exists(/databases/$(database)/documents/adminUsers/$(request.auth.uid));
+    }
+    
+    match /auditLogs/{logId} {
+      allow read, write: if isAuthenticated() && 
+        exists(/databases/$(database)/documents/adminUsers/$(request.auth.uid));
+    }
+    
+    match /moderationActions/{actionId} {
+      allow read, write: if isAuthenticated() && 
+        exists(/databases/$(database)/documents/adminUsers/$(request.auth.uid));
+    }
+    
+    match /systemConfig/{configId} {
+      allow read, write: if isAuthenticated() && 
+        exists(/databases/$(database)/documents/adminUsers/$(request.auth.uid));
+    }
+    
+    match /bulkOperations/{operationId} {
+      allow read, write: if isAuthenticated() && 
+        exists(/databases/$(database)/documents/adminUsers/$(request.auth.uid));
+    }
+    
+    match /contentReviewQueue/{reviewId} {
+      allow read, write: if isAuthenticated() && 
+        exists(/databases/$(database)/documents/adminUsers/$(request.auth.uid));
+    }
+    
+    // ===== DEFAULT RULE =====
+    // Deny all other access
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
