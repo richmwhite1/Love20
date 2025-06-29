@@ -390,6 +390,216 @@ const makeRequest = async <T>(
 
 // Main API Service class
 export class ApiService {
+  private baseUrl: string;
+
+  constructor() {
+    this.baseUrl = '/api';
+  }
+
+  private async getAuthHeaders(): Promise<Record<string, string>> {
+    const token = await authService.getIdToken();
+    return {
+      'Content-Type': 'application/json',
+      ...(token && { 'Authorization': `Bearer ${token}` })
+    };
+  }
+
+  private async handleResponse<T>(response: Response): Promise<ApiResponse<T>> {
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.error || errorData.message || `HTTP error! status: ${response.status}`);
+    }
+    
+    const data = await response.json().catch(() => ({}));
+    return data;
+  }
+
+  async get<T>(endpoint: string): Promise<ApiResponse<T>> {
+    try {
+      const headers = await this.getAuthHeaders();
+      const response = await fetch(`${this.baseUrl}${endpoint}`, {
+        method: 'GET',
+        headers
+      });
+      
+      return await this.handleResponse<T>(response);
+    } catch (error) {
+      console.error(`API GET Error (${endpoint}):`, error);
+      throw error;
+    }
+  }
+
+  async post<T>(endpoint: string, data?: any): Promise<ApiResponse<T>> {
+    try {
+      const headers = await this.getAuthHeaders();
+      const response = await fetch(`${this.baseUrl}${endpoint}`, {
+        method: 'POST',
+        headers,
+        body: data ? JSON.stringify(data) : undefined
+      });
+      
+      return await this.handleResponse<T>(response);
+    } catch (error) {
+      console.error(`API POST Error (${endpoint}):`, error);
+      throw error;
+    }
+  }
+
+  async put<T>(endpoint: string, data?: any): Promise<ApiResponse<T>> {
+    try {
+      const headers = await this.getAuthHeaders();
+      const response = await fetch(`${this.baseUrl}${endpoint}`, {
+        method: 'PUT',
+        headers,
+        body: data ? JSON.stringify(data) : undefined
+      });
+      
+      return await this.handleResponse<T>(response);
+    } catch (error) {
+      console.error(`API PUT Error (${endpoint}):`, error);
+      throw error;
+    }
+  }
+
+  async delete<T>(endpoint: string): Promise<ApiResponse<T>> {
+    try {
+      const headers = await this.getAuthHeaders();
+      const response = await fetch(`${this.baseUrl}${endpoint}`, {
+        method: 'DELETE',
+        headers
+      });
+      
+      return await this.handleResponse<T>(response);
+    } catch (error) {
+      console.error(`API DELETE Error (${endpoint}):`, error);
+      throw error;
+    }
+  }
+
+  async uploadFile<T>(endpoint: string, file: File, additionalData?: any): Promise<ApiResponse<T>> {
+    try {
+      const token = await authService.getIdToken();
+      const formData = new FormData();
+      formData.append('file', file);
+      
+      if (additionalData) {
+        Object.keys(additionalData).forEach(key => {
+          formData.append(key, additionalData[key]);
+        });
+      }
+
+      const response = await fetch(`${this.baseUrl}${endpoint}`, {
+        method: 'POST',
+        headers: {
+          ...(token && { 'Authorization': `Bearer ${token}` })
+        },
+        body: formData
+      });
+      
+      return await this.handleResponse<T>(response);
+    } catch (error) {
+      console.error(`API Upload Error (${endpoint}):`, error);
+      throw error;
+    }
+  }
+
+  // User endpoints
+  async getCurrentUser() {
+    return this.get('/auth/me');
+  }
+
+  async getUserProfile(userId: string) {
+    return this.get(`/users/${userId}`);
+  }
+
+  async updateUserProfile(data: any) {
+    return this.put('/user', data);
+  }
+
+  // Post endpoints
+  async getPosts(filters?: any) {
+    const params = new URLSearchParams();
+    if (filters) {
+      Object.keys(filters).forEach(key => {
+        if (filters[key] !== undefined) {
+          params.append(key, filters[key]);
+        }
+      });
+    }
+    return this.get(`/posts?${params.toString()}`);
+  }
+
+  async getPost(postId: string) {
+    return this.get(`/posts/${postId}`);
+  }
+
+  async createPost(data: any) {
+    return this.post('/posts', data);
+  }
+
+  async likePost(postId: string) {
+    return this.post(`/posts/${postId}/like`);
+  }
+
+  async unlikePost(postId: string) {
+    return this.delete(`/posts/${postId}/like`);
+  }
+
+  async sharePost(postId: string) {
+    return this.post(`/posts/${postId}/share`);
+  }
+
+  async savePost(postId: string) {
+    return this.post(`/posts/${postId}/save`);
+  }
+
+  async unsavePost(postId: string) {
+    return this.delete(`/posts/${postId}/save`);
+  }
+
+  // List endpoints
+  async getLists() {
+    return this.get('/lists');
+  }
+
+  async getList(listId: string) {
+    return this.get(`/lists/${listId}`);
+  }
+
+  async createList(data: any) {
+    return this.post('/lists', data);
+  }
+
+  // Notification endpoints
+  async getNotifications() {
+    return this.get('/notifications');
+  }
+
+  async getUnreadCount() {
+    return this.get('/notifications/unread-count');
+  }
+
+  async markNotificationAsRead(notificationId: string) {
+    return this.put(`/notifications/${notificationId}/read`);
+  }
+
+  // Friend endpoints
+  async getFriends() {
+    return this.get('/friends');
+  }
+
+  async sendFriendRequest(userId: string) {
+    return this.post(`/friends/request/${userId}`);
+  }
+
+  async acceptFriendRequest(requestId: string) {
+    return this.put(`/friends/accept/${requestId}`);
+  }
+
+  async rejectFriendRequest(requestId: string) {
+    return this.put(`/friends/reject/${requestId}`);
+  }
+
   // Cache-aware GET request
   static async getCached<T>(
     endpoint: string,

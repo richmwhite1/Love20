@@ -1,250 +1,193 @@
-import { useState } from "react";
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
-import { useLocation } from "wouter";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
-import { useToast } from "@/components/ui/toaster";
-import { useAuth } from "@/lib/auth";
-import { z } from "zod";
-
-// Firebase Auth schemas
-const signInSchema = z.object({
-  email: z.string().email("Please enter a valid email address"),
-  password: z.string().min(6, "Password must be at least 6 characters"),
-});
-
-const signUpSchema = z.object({
-  email: z.string().email("Please enter a valid email address"),
-  password: z.string().min(6, "Password must be at least 6 characters"),
-  username: z.string().min(3, "Username must be at least 3 characters"),
-  name: z.string().min(2, "Name must be at least 2 characters"),
-});
-
-type SignInData = z.infer<typeof signInSchema>;
-type SignUpData = z.infer<typeof signUpSchema>;
+import React, { useState } from 'react';
+import { useAuth } from '@/lib/auth';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { useToast } from '@/hooks/use-toast';
 
 interface AuthModalProps {
-  defaultMode?: 'signin' | 'signup';
-  onSuccess?: () => void;
+  isOpen: boolean;
+  onClose: () => void;
 }
 
-export default function AuthModal({ defaultMode = 'signin', onSuccess }: AuthModalProps) {
-  // Debug: This should be the new firebase auth page
-  console.log('🔥 Firebase Auth Modal Loaded - New Firebase Authentication System');
+export function AuthModal({ isOpen, onClose }: AuthModalProps) {
+  const [isSignUp, setIsSignUp] = useState(false);
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [name, setName] = useState('');
+  const [username, setUsername] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
   
-  const [mode, setMode] = useState<'signin' | 'signup'>(defaultMode);
-  const [, setLocation] = useLocation();
-  const { signIn, signUp } = useAuth();
-  const { addToast } = useToast();
+  const { signIn, signUp, signInWithGoogle } = useAuth();
+  const { toast } = useToast();
 
-  const signInForm = useForm<SignInData>({
-    resolver: zodResolver(signInSchema),
-    defaultValues: {
-      email: "",
-      password: "",
-    },
-    mode: "onChange",
-  });
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsLoading(true);
 
-  const signUpForm = useForm<SignUpData>({
-    resolver: zodResolver(signUpSchema),
-    defaultValues: {
-      email: "",
-      password: "",
-      username: "",
-      name: "",
-    },
-  });
-
-  const handleSignIn = async (data: SignInData) => {
     try {
-      await signIn(data);
-      addToast("Welcome back! You have been signed in successfully.", "success");
-      onSuccess?.();
-      setLocation('/');
+      if (isSignUp) {
+        await signUp(email, password, name, username);
+        toast({
+          title: "Account created!",
+          description: "Welcome to Love20!",
+        });
+      } else {
+        await signIn(email, password);
+        toast({
+          title: "Welcome back!",
+          description: "Successfully signed in.",
+        });
+      }
+      onClose();
     } catch (error: any) {
-      addToast(error.message || "Invalid credentials", "error");
+      toast({
+        title: "Error",
+        description: error.message || "Something went wrong",
+        variant: "destructive",
+      });
+    } finally {
+      setIsLoading(false);
     }
   };
 
-  const handleSignUp = async (data: SignUpData) => {
+  const handleGoogleSignIn = async () => {
+    setIsLoading(true);
     try {
-      await signUp(data);
-      addToast("Account created! Welcome to Share! You are now signed in.", "success");
-      onSuccess?.();
-      setLocation('/');
+      await signInWithGoogle();
+      toast({
+        title: "Welcome!",
+        description: "Successfully signed in with Google.",
+      });
+      onClose();
     } catch (error: any) {
-      addToast(error.message || "Failed to create account", "error");
+      toast({
+        title: "Error",
+        description: error.message || "Failed to sign in with Google",
+        variant: "destructive",
+      });
+    } finally {
+      setIsLoading(false);
     }
   };
+
+  if (!isOpen) return null;
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-surface-gray p-4">
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
       <Card className="w-full max-w-md">
-        <CardHeader className="text-center">
-          <CardTitle className="text-2xl font-bold text-gray-900 mb-2">
-            {mode === 'signin' ? 'Welcome Back' : 'Join Share'}
-          </CardTitle>
-          <p className="text-pinterest-gray">
-            {mode === 'signin' 
-              ? 'Sign in to comment and share your thoughts'
-              : 'Create an account to start sharing amazing posts'
-            }
-          </p>
-          <p className="text-xs text-green-600 font-medium mt-2">
-            🔥 Firebase Authentication System
-          </p>
+        <CardHeader>
+          <CardTitle>{isSignUp ? 'Create Account' : 'Sign In'}</CardTitle>
+          <CardDescription>
+            {isSignUp ? 'Join Love20 to start sharing and discovering' : 'Welcome back to Love20'}
+          </CardDescription>
         </CardHeader>
-
         <CardContent>
-          {mode === 'signin' ? (
-            <Form {...signInForm}>
-              <form onSubmit={signInForm.handleSubmit(handleSignIn)} className="space-y-4">
-                <FormField
-                  control={signInForm.control}
-                  name="email"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Email</FormLabel>
-                      <FormControl>
-                        <Input
-                          type="email"
-                          placeholder="Enter your email"
-                          className="focus:ring-2 focus:ring-pinterest-red focus:border-transparent"
-                          {...field}
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={signInForm.control}
-                  name="password"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Password</FormLabel>
-                      <FormControl>
-                        <Input
-                          type="password"
-                          placeholder="Enter your password"
-                          className="focus:ring-2 focus:ring-pinterest-red focus:border-transparent"
-                          {...field}
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <Button
-                  type="submit"
-                  className="w-full bg-pinterest-red text-white hover:bg-red-700"
-                  disabled={signInForm.formState.isSubmitting}
-                >
-                  {signInForm.formState.isSubmitting ? 'Signing In...' : 'Sign In'}
+          <Tabs value={isSignUp ? 'signup' : 'signin'} onValueChange={(value) => setIsSignUp(value === 'signup')}>
+            <TabsList className="grid w-full grid-cols-2">
+              <TabsTrigger value="signin">Sign In</TabsTrigger>
+              <TabsTrigger value="signup">Sign Up</TabsTrigger>
+            </TabsList>
+            
+            <TabsContent value="signin">
+              <form onSubmit={handleSubmit} className="space-y-4">
+                <div>
+                  <Label htmlFor="email">Email</Label>
+                  <Input
+                    id="email"
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    required
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="password">Password</Label>
+                  <Input
+                    id="password"
+                    type="password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    required
+                  />
+                </div>
+                <Button type="submit" className="w-full" disabled={isLoading}>
+                  {isLoading ? 'Signing in...' : 'Sign In'}
                 </Button>
               </form>
-            </Form>
-          ) : (
-            <Form {...signUpForm}>
-              <form onSubmit={signUpForm.handleSubmit(handleSignUp)} className="space-y-4">
-                <FormField
-                  control={signUpForm.control}
-                  name="name"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Full Name</FormLabel>
-                      <FormControl>
-                        <Input
-                          placeholder="Enter your full name"
-                          className="focus:ring-2 focus:ring-pinterest-red focus:border-transparent"
-                          {...field}
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={signUpForm.control}
-                  name="username"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Username</FormLabel>
-                      <FormControl>
-                        <Input
-                          placeholder="Choose a username"
-                          className="focus:ring-2 focus:ring-pinterest-red focus:border-transparent"
-                          {...field}
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={signUpForm.control}
-                  name="email"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Email</FormLabel>
-                      <FormControl>
-                        <Input
-                          type="email"
-                          placeholder="Enter your email"
-                          className="focus:ring-2 focus:ring-pinterest-red focus:border-transparent"
-                          {...field}
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={signUpForm.control}
-                  name="password"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Password</FormLabel>
-                      <FormControl>
-                        <Input
-                          type="password"
-                          placeholder="Create a password"
-                          className="focus:ring-2 focus:ring-pinterest-red focus:border-transparent"
-                          {...field}
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <Button
-                  type="submit"
-                  className="w-full bg-pinterest-red text-white hover:bg-red-700"
-                  disabled={signUpForm.formState.isSubmitting}
-                >
-                  {signUpForm.formState.isSubmitting ? 'Creating Account...' : 'Create Account'}
+            </TabsContent>
+            
+            <TabsContent value="signup">
+              <form onSubmit={handleSubmit} className="space-y-4">
+                <div>
+                  <Label htmlFor="name">Full Name</Label>
+                  <Input
+                    id="name"
+                    type="text"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    required
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="username">Username</Label>
+                  <Input
+                    id="username"
+                    type="text"
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value)}
+                    required
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="signup-email">Email</Label>
+                  <Input
+                    id="signup-email"
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    required
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="signup-password">Password</Label>
+                  <Input
+                    id="signup-password"
+                    type="password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    required
+                  />
+                </div>
+                <Button type="submit" className="w-full" disabled={isLoading}>
+                  {isLoading ? 'Creating account...' : 'Create Account'}
                 </Button>
               </form>
-            </Form>
-          )}
-
-          <div className="mt-6 text-center">
-            <p className="text-sm text-gray-600">
-              {mode === 'signin' ? "Don't have an account? " : "Already have an account? "}
-              <button
-                type="button"
-                onClick={() => setMode(mode === 'signin' ? 'signup' : 'signin')}
-                className="text-pinterest-red hover:underline font-medium"
-              >
-                {mode === 'signin' ? 'Sign up' : 'Sign in'}
-              </button>
-            </p>
+            </TabsContent>
+          </Tabs>
+          
+          <div className="mt-4">
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full"
+              onClick={handleGoogleSignIn}
+              disabled={isLoading}
+            >
+              {isLoading ? 'Signing in...' : 'Continue with Google'}
+            </Button>
           </div>
+          
+          <Button
+            type="button"
+            variant="ghost"
+            className="w-full mt-2"
+            onClick={onClose}
+          >
+            Cancel
+          </Button>
         </CardContent>
       </Card>
     </div>

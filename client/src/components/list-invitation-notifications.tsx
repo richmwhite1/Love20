@@ -32,11 +32,13 @@ export default function ListInvitationNotifications() {
   const { getIdToken } = useAuth();
 
   // Fetch pending list invitations
-  const { data: invitations = [], isLoading } = useQuery({
+  const { data: response, isLoading } = useQuery({
     queryKey: ['/api/user/list-invitations'],
     queryFn: getQueryFn({ on401: "returnNull", getToken: getIdToken }),
     enabled: true,
   });
+
+  const invitations = response?.data ?? [];
 
   // Accept invitation mutation
   const acceptMutation = useMutation({

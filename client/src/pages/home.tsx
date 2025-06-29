@@ -125,6 +125,11 @@ export default function Home() {
 
   return (
     <div className="bg-black">
+      {/* Temporary test message */}
+      <div className="bg-green-500 text-white p-4 text-center">
+        🏠 Home Page is Loading! Posts: {posts?.length || 0} | Loading: {isLoading ? 'Yes' : 'No'}
+      </div>
+      
       {/* Stories */}
       {isAuthenticated && (
         <Stories 

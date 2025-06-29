@@ -26,6 +26,7 @@ interface PostCardProps {
   post: Post;
   onPostUpdate?: (updatedPost: Post) => void;
   showActions?: boolean;
+  showUserInfo?: boolean;
   variant?: 'default' | 'compact';
 }
 
@@ -33,6 +34,7 @@ export function PostCard({
   post, 
   onPostUpdate, 
   showActions = true,
+  showUserInfo = true,
   variant = 'default' 
 }: PostCardProps) {
   const { user } = useAuth();

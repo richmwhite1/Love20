@@ -9,7 +9,7 @@ const initializeFirebase = () => {
     
     admin.initializeApp({
       credential: admin.credential.cert(serviceAccount),
-      projectId: process.env.VITE_FIREBASE_PROJECT_ID,
+      projectId: process.env.FIREBASE_PROJECT_ID || 'share-3f94b', // Use environment variable or default
     });
   }
   return admin;

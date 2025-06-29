@@ -11,19 +11,37 @@ export abstract class BaseService {
     this.auth = auth;
   }
 
-  protected createSuccessResponse<T>(data: T, message?: string): ApiResponse<T> {
+  protected createSuccessResponse<T>(data: T, message?: string, code: number = 200): ApiResponse<T> {
     return {
       success: true,
       data,
       message,
-      code: 200
+      code
     };
   }
 
-  protected createErrorResponse(message: string, code: number = 500): ApiResponse<null> {
+  protected createErrorResponse<T>(message: string, code: number = 500): ApiResponse<T> {
     return {
       success: false,
       error: message,
+      code
+    };
+  }
+
+  protected createEmptySuccessResponse(message?: string, code: number = 200): ApiResponse<null> {
+    return {
+      success: true,
+      data: null,
+      message,
+      code
+    };
+  }
+
+  protected createArraySuccessResponse<T>(data: T[], message?: string, code: number = 200): ApiResponse<T[]> {
+    return {
+      success: true,
+      data,
+      message,
       code
     };
   }

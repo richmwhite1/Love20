@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Skeleton } from '../../ui/skeleton';
 import { useToast } from '../../../hooks/use-toast';
 import { useAuth } from '../../../lib/auth';
-import { Loader2, RefreshCw, TrendingUp, Clock, Users, Algorithm } from 'lucide-react';
+import { Loader2, RefreshCw, TrendingUp, Clock, Users, Sparkles } from 'lucide-react';
 
 interface FeedProps {
   initialFeedType?: FeedTypeEnum;
@@ -150,7 +150,7 @@ export const Feed: React.FC<FeedProps> = ({
   // Feed type options
   const feedTypeOptions = [
     { value: FeedTypeEnum.CHRONOLOGICAL, label: 'Latest', icon: Clock },
-    { value: FeedTypeEnum.ALGORITHMIC, label: 'For You', icon: Algorithm },
+    { value: FeedTypeEnum.ALGORITHMIC, label: 'For You', icon: Sparkles },
     { value: FeedTypeEnum.FRIENDS, label: 'Friends', icon: Users },
     { value: FeedTypeEnum.TRENDING, label: 'Trending', icon: TrendingUp },
   ];

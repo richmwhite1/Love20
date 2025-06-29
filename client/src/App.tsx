@@ -49,15 +49,21 @@ function AppContent() {
   if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-black text-white">
-        <div className="animate-spin rounded-full h-16 w-16 border-t-4 border-yellow-400"></div>
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-16 w-16 border-t-4 border-yellow-400 mx-auto mb-4"></div>
+          <p className="text-lg">Loading Love20...</p>
+        </div>
       </div>
     );
   }
   return (
     <TooltipProvider>
       <div className="min-h-screen bg-black w-full">
+        <div className="fixed top-0 left-0 right-0 z-50 bg-red-500 text-white p-2 text-center">
+          🎉 Love20 App is Loading! If you can see this, the app is working!
+        </div>
         <Header />
-        <main className="pb-20 w-full"> {/* Add bottom padding for bottom nav */}
+        <main className="pb-20 w-full">
           <Router />
         </main>
         <BottomNav />

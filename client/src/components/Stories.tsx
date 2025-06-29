@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import AuricField from '@/components/auric-field';
 import { useEffect } from 'react';
+import { ErrorBoundary } from '@/components/common/ErrorBoundary';
 
 interface Story {
   user: {
@@ -42,11 +43,16 @@ interface StoriesProps {
   onAllStoriesViewed?: () => void;
 }
 
-export function Stories({ users, onSelectUser, onMarkAsViewed, onAllStoriesViewed }: StoriesProps) {
-  const { data: stories = [], isLoading } = useQuery<Story[]>({
+function StoriesInner({ users, onSelectUser, onMarkAsViewed, onAllStoriesViewed }: StoriesProps) {
+  const { data, isLoading, error } = useQuery<Story[]>({
     queryKey: ['/api/connection-stories'],
     refetchInterval: 30000, // Refresh every 30 seconds
   });
+
+  // Defensive: always use array
+  const stories = Array.isArray(data) ? data : (data?.data ?? []);
+
+  console.log('[Stories] Mount', { stories, isLoading, error });
 
   // Deduplicate stories by user ID and filter out viewed users
   const uniqueStories = stories.reduce((acc: Story[], story) => {
@@ -73,6 +79,7 @@ export function Stories({ users, onSelectUser, onMarkAsViewed, onAllStoriesViewe
   };
 
   if (isLoading) {
+    console.log('[Stories] Loading...');
     return (
       <div className="bg-black border-b border-gray-700 p-4">
         <div className="flex space-x-4 overflow-x-auto scrollbar-hide stories-scroll">
@@ -87,6 +94,11 @@ export function Stories({ users, onSelectUser, onMarkAsViewed, onAllStoriesViewe
         </div>
       </div>
     );
+  }
+
+  if (error) {
+    console.error('[Stories] Error:', error);
+    return <div className="text-red-500 p-4">Failed to load stories.</div>;
   }
 
   // Don't render anything if there are no unviewed stories
@@ -128,5 +140,13 @@ export function Stories({ users, onSelectUser, onMarkAsViewed, onAllStoriesViewe
         </div>
       </div>
     </>
+  );
+}
+
+export function Stories(props: StoriesProps) {
+  return (
+    <ErrorBoundary>
+      <StoriesInner {...props} />
+    </ErrorBoundary>
   );
 }

@@ -103,6 +103,55 @@ export class UserService extends BaseService {
     }
   }
 
+  async createUser(userId: string, userData: any): Promise<ApiResponse<any>> {
+    try {
+      // Create user in storage
+      const createUserResponse = await this.storage.createUser({
+        ...userData,
+        id: userId
+      });
+
+      if (!createUserResponse.success) {
+        return this.createErrorResponse('Failed to create user');
+      }
+
+      // Create three default lists for new user
+      const defaultLists = [
+        {
+          userId,
+          name: 'General',
+          description: 'Default list for all posts',
+          privacyLevel: 'public',
+          isPublic: true
+        },
+        {
+          userId,
+          name: 'Favorites',
+          description: 'Your favorite posts',
+          privacyLevel: 'public',
+          isPublic: true
+        },
+        {
+          userId,
+          name: 'Wishlist',
+          description: 'Posts you want to remember',
+          privacyLevel: 'connections',
+          isPublic: false
+        }
+      ];
+
+      // Create all default lists
+      for (const listData of defaultLists) {
+        await this.storage.createList(listData);
+      }
+
+      return this.createSuccessResponse(createUserResponse.data, 'User created successfully with default lists');
+    } catch (error) {
+      this.logError('createUser', error, { userId, userData });
+      return this.createErrorResponse('Failed to create user');
+    }
+  }
+
   async uploadProfilePicture(userId: string, file: Express.Multer.File): Promise<ApiResponse<any>> {
     try {
       // Check if user exists
@@ -372,6 +421,17 @@ export class UserService extends BaseService {
     } catch (error) {
       this.logError('removeFriend', error, { userId, friendId });
       return this.createErrorResponse('Failed to remove friend');
+    }
+  }
+
+  async getUserListInvitations(userId: string): Promise<ApiResponse<any[]>> {
+    try {
+      // For now, return empty array since this feature might not be fully implemented
+      // This prevents the frontend from crashing when this endpoint is called
+      return this.createSuccessResponse([]);
+    } catch (error) {
+      this.logError('getUserListInvitations', error, { userId });
+      return this.createErrorResponse('Failed to get list invitations');
     }
   }
 }

@@ -87,9 +87,21 @@ class AuthService {
         
         await setDoc(doc(db, 'users', firebaseUser.uid), userData);
         this.currentUser = userData;
-        
-        // Call backend to ensure user exists and has General list
-        await this.ensureUserInBackend();
+
+        // Call backend to create user with default lists for new Google sign-in users
+        const token = await firebaseUser.getIdToken();
+        const response = await fetch('/api/users', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(userData)
+        });
+
+        if (!response.ok) {
+          console.warn('Failed to create user in backend:', response.status);
+        }
       }
     } catch (error) {
       console.error('Error handling user sign in:', error);
@@ -109,27 +121,6 @@ class AuthService {
   private handleUserSignOut() {
     this.currentUser = null;
     this.clearTokenRefresh();
-  }
-
-  private async ensureUserInBackend() {
-    try {
-      const token = await this.getIdToken();
-      if (!token) return;
-
-      const response = await fetch('/api/auth/ensure-user', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        }
-      });
-      
-      if (!response.ok) {
-        console.warn('Failed to ensure user in backend:', response.status);
-      }
-    } catch (error) {
-      console.warn('Error ensuring user in backend:', error);
-    }
   }
 
   private setupTokenRefresh() {
@@ -214,6 +205,21 @@ class AuthService {
       };
       
       await setDoc(doc(db, 'users', firebaseUser.uid), userData);
+
+      // Call backend to create user with default lists
+      const token = await firebaseUser.getIdToken();
+      const response = await fetch('/api/users', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(userData)
+      });
+
+      if (!response.ok) {
+        console.warn('Failed to create user in backend:', response.status);
+      }
     } catch (error: any) {
       throw this.handleAuthError(error);
     }
